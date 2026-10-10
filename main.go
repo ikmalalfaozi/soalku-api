@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"os"
 )
 
 func healthz(w http.ResponseWriter, r *http.Request) {
@@ -15,7 +16,11 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", healthz)
 
-	addr := ":8080"
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+	addr := ":" + port
 	log.Println("server berjalan di", addr)
 	log.Fatal(http.ListenAndServe(addr, mux))
 }
