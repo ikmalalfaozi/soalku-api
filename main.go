@@ -16,9 +16,27 @@ import (
 	"github.com/joho/godotenv"
 )
 
-func healthz(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+type pinger interface {
+	Ping(ctx context.Context) error
+}
+
+func healthz(logger *slog.Logger, db pinger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		defer cancel()
+
+		code := http.StatusOK
+		body := map[string]string{"status": "ok", "db": "ok"}
+		if err := db.Ping(ctx); err != nil {
+			logger.Error("pengecekan database gagal", "error", err)
+			code = http.StatusServiceUnavailable
+			body = map[string]string{"status": "degraded", "db": "error"}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(code)
+		json.NewEncoder(w).Encode(body)
+	}
 }
 
 func requestLogger(logger *slog.Logger) func(http.Handler) http.Handler {
@@ -39,10 +57,10 @@ func requestLogger(logger *slog.Logger) func(http.Handler) http.Handler {
 	}
 }
 
-func newRouter(logger *slog.Logger) http.Handler {
+func newRouter(logger *slog.Logger, db pinger) http.Handler {
 	r := chi.NewRouter()
 	r.Use(requestLogger(logger))
-	r.Get("/healthz", healthz)
+	r.Get("/healthz", healthz(logger, db))
 	return r
 }
 
@@ -83,7 +101,7 @@ func run(logger *slog.Logger) error {
 	addr := ":" + port
 	logger.Info("server berjalan", "addr", addr)
 
-	return http.ListenAndServe(addr, newRouter(logger))
+	return http.ListenAndServe(addr, newRouter(logger, pool))
 }
 
 func main() {

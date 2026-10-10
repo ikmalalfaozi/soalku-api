@@ -2,7 +2,9 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -10,11 +12,30 @@ import (
 	"testing"
 )
 
-func TestHealthz(t *testing.T) {
+type fakeDB struct{ err error }
+
+func (f fakeDB) Ping(ctx context.Context) error { return f.err }
+
+func discardLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
+}
+
+func getHealthz(t *testing.T, db pinger) (*httptest.ResponseRecorder, map[string]string) {
+	t.Helper()
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	rec := httptest.NewRecorder()
 
-	healthz(rec, req)
+	healthz(discardLogger(), db).ServeHTTP(rec, req)
+
+	var body map[string]string
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("isi respons bukan JSON valid: %v", err)
+	}
+	return rec, body
+}
+
+func TestHealthzDatabaseSehat(t *testing.T) {
+	rec, body := getHealthz(t, fakeDB{})
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, harusnya %d", rec.Code, http.StatusOK)
@@ -22,13 +43,19 @@ func TestHealthz(t *testing.T) {
 	if got := rec.Header().Get("Content-Type"); got != "application/json" {
 		t.Errorf("Content-Type = %q, harusnya application/json", got)
 	}
-
-	var body map[string]string
-	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
-		t.Fatalf("isi respons bukan JSON valid: %v", err)
+	if body["status"] != "ok" || body["db"] != "ok" {
+		t.Errorf(`body = %v, harusnya status "ok" dan db "ok"`, body)
 	}
-	if body["status"] != "ok" {
-		t.Errorf(`status = %q, harusnya "ok"`, body["status"])
+}
+
+func TestHealthzDatabaseMati(t *testing.T) {
+	rec, body := getHealthz(t, fakeDB{err: errors.New("koneksi putus")})
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, harusnya %d", rec.Code, http.StatusServiceUnavailable)
+	}
+	if body["status"] != "degraded" || body["db"] != "error" {
+		t.Errorf(`body = %v, harusnya status "degraded" dan db "error"`, body)
 	}
 }
 
@@ -49,7 +76,7 @@ func TestRouter(t *testing.T) {
 			req := httptest.NewRequest(tc.method, tc.path, nil)
 			rec := httptest.NewRecorder()
 
-			newRouter(slog.New(slog.NewTextHandler(io.Discard, nil))).ServeHTTP(rec, req)
+			newRouter(discardLogger(), fakeDB{}).ServeHTTP(rec, req)
 
 			if rec.Code != tc.want {
 				t.Errorf("status = %d, harusnya %d", rec.Code, tc.want)
@@ -64,7 +91,7 @@ func TestRequestLogger(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	rec := httptest.NewRecorder()
-	newRouter(logger).ServeHTTP(rec, req)
+	newRouter(logger, fakeDB{}).ServeHTTP(rec, req)
 
 	log := buf.String()
 	for _, want := range []string{"method=GET", "path=/healthz", "status=200", "duration_ms="} {
