@@ -1,0 +1,24 @@
+# Rahasia dan pengaturan lokal
+.env
+.env.*
+!.env.example
+
+# Hasil kompilasi
+/bin/
+*.exe
+*.test
+*.out
+
+# Cakupan tes dan profil
+coverage.out
+*.prof
+
+# Editor dan sistem operasi
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Log
+*.log
