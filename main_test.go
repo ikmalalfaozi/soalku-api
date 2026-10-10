@@ -1,7 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -46,11 +49,27 @@ func TestRouter(t *testing.T) {
 			req := httptest.NewRequest(tc.method, tc.path, nil)
 			rec := httptest.NewRecorder()
 
-			newRouter().ServeHTTP(rec, req)
+			newRouter(slog.New(slog.NewTextHandler(io.Discard, nil))).ServeHTTP(rec, req)
 
 			if rec.Code != tc.want {
 				t.Errorf("status = %d, harusnya %d", rec.Code, tc.want)
 			}
 		})
+	}
+}
+
+func TestRequestLogger(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, nil))
+
+	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	rec := httptest.NewRecorder()
+	newRouter(logger).ServeHTTP(rec, req)
+
+	log := buf.String()
+	for _, want := range []string{"method=GET", "path=/healthz", "status=200", "duration_ms="} {
+		if !bytes.Contains(buf.Bytes(), []byte(want)) {
+			t.Errorf("log tidak memuat %q, isi log: %s", want, log)
+		}
 	}
 }
