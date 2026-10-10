@@ -1,7 +1,10 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -9,6 +12,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/joho/godotenv"
 )
 
 func healthz(w http.ResponseWriter, r *http.Request) {
@@ -41,8 +46,35 @@ func newRouter(logger *slog.Logger) http.Handler {
 	return r
 }
 
-func main() {
-	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+func connectDB(ctx context.Context, url string) (*pgxpool.Pool, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	pool, err := pgxpool.New(ctx, url)
+	if err != nil {
+		return nil, fmt.Errorf("DATABASE_URL tidak valid: %w", err)
+	}
+	if err := pool.Ping(ctx); err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("tidak bisa terhubung ke database (sudah menyala? coba: soalku-db start): %w", err)
+	}
+	return pool, nil
+}
+
+func run(logger *slog.Logger) error {
+	// Membaca .env bila ada; variabel yang sudah diset di terminal tidak ditimpa.
+	_ = godotenv.Load()
+
+	dbURL := os.Getenv("DATABASE_URL")
+	if dbURL == "" {
+		return errors.New("DATABASE_URL belum diatur (salin .env.example menjadi .env)")
+	}
+	pool, err := connectDB(context.Background(), dbURL)
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+	logger.Info("terhubung ke database")
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -51,7 +83,13 @@ func main() {
 	addr := ":" + port
 	logger.Info("server berjalan", "addr", addr)
 
-	if err := http.ListenAndServe(addr, newRouter(logger)); err != nil {
+	return http.ListenAndServe(addr, newRouter(logger))
+}
+
+func main() {
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+
+	if err := run(logger); err != nil {
 		logger.Error("server berhenti", "error", err)
 		os.Exit(1)
 	}
