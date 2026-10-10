@@ -28,3 +28,29 @@ func TestHealthz(t *testing.T) {
 		t.Errorf(`status = %q, harusnya "ok"`, body["status"])
 	}
 }
+
+func TestRouter(t *testing.T) {
+	tests := []struct {
+		nama   string
+		method string
+		path   string
+		want   int
+	}{
+		{"GET /healthz diterima", http.MethodGet, "/healthz", http.StatusOK},
+		{"POST /healthz ditolak", http.MethodPost, "/healthz", http.StatusMethodNotAllowed},
+		{"alamat tidak dikenal", http.MethodGet, "/tidak-ada", http.StatusNotFound},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.nama, func(t *testing.T) {
+			req := httptest.NewRequest(tc.method, tc.path, nil)
+			rec := httptest.NewRecorder()
+
+			newRouter().ServeHTTP(rec, req)
+
+			if rec.Code != tc.want {
+				t.Errorf("status = %d, harusnya %d", rec.Code, tc.want)
+			}
+		})
+	}
+}

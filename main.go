@@ -5,6 +5,8 @@ import (
 	"log"
 	"net/http"
 	"os"
+
+	"github.com/go-chi/chi/v5"
 )
 
 func healthz(w http.ResponseWriter, r *http.Request) {
@@ -12,15 +14,18 @@ func healthz(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
-func main() {
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", healthz)
+func newRouter() http.Handler {
+	r := chi.NewRouter()
+	r.Get("/healthz", healthz)
+	return r
+}
 
+func main() {
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
 	}
 	addr := ":" + port
 	log.Println("server berjalan di", addr)
-	log.Fatal(http.ListenAndServe(addr, mux))
+	log.Fatal(http.ListenAndServe(addr, newRouter()))
 }
